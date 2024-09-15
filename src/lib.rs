@@ -14,10 +14,12 @@ pub fn search<'a>(content: &'a str, pattern: &str) -> Vec<&'a str> {
 
 #[derive(Debug)]
 enum RegexType {
+    Invalid,
     Digit,
     Word,
     Char,
     Literal(char),
+    CharGroup(String),
 }
 #[derive(Debug)]
 struct Regex {
@@ -30,11 +32,33 @@ impl Regex {
         let mut pattern_it = pattern.chars();
         while let Some(c) = pattern_it.next() {
             let reg_type = match c {
-                '\\' => {
-                    if let Some('d') = pattern_it.next() {
-                        RegexType::Digit
+                '\\' => match pattern_it.next() {
+                    Some('d') => RegexType::Digit,
+                    Some('w') => RegexType::Word,
+                    Some(_) => RegexType::Char,
+                    None => RegexType::Invalid,
+                },
+                '[' => {
+                    let mut char_group = String::new();
+                    let mut error = false;
+                    loop {
+                        match pattern_it.next() {
+                            Some(gc) => {
+                                if gc == ']' {
+                                    break;
+                                }
+                                char_group.push(gc);
+                            }
+                            None => {
+                                error = true;
+                                break;
+                            }
+                        };
+                    }
+                    if error {
+                        RegexType::Invalid
                     } else {
-                        RegexType::Char
+                        RegexType::CharGroup(char_group)
                     }
                 }
                 c => RegexType::Literal(c),
@@ -63,7 +87,8 @@ impl Regex {
             let ret_val = match rule {
                 RegexType::Literal(x) => c == x,
                 RegexType::Digit => c.is_ascii_digit(),
-                RegexType::Char => c.is_ascii_alphabetic(),
+                RegexType::Word => c.is_ascii_alphabetic(),
+                RegexType::CharGroup(char_group) => char_group.contains(*c),
                 _ => false,
             };
 
@@ -86,8 +111,6 @@ mod tests {
         let content = "\
 there is someone
 I don't know what to do";
-        let output = search(content, query);
-        // println!("{:?}", output);
         assert_eq!(vec!["I don't know what to do"], search(content, query));
     }
 
@@ -103,5 +126,18 @@ Follow it till 6 pm today
             vec!["Full fathom 5 thy father lie", "Follow it till 6 pm today"],
             search(content, query)
         )
+    }
+    #[test]
+    fn char_group_search() {
+        let query = "[rnq]";
+        let content = "\
+Full fathom 5 thq fathe lie
+upper hand has lower brises
+Follow it till 6 pm today
+            ";
+        assert_eq!(
+            vec!["Full fathom 5 thq fathe lie", "upper hand has lower brises"],
+            search(content, query)
+        );
     }
 }
