@@ -20,6 +20,7 @@ enum RegexType {
     Char,
     Literal(char),
     CharGroup(String),
+    NegCharGroup(String),
 }
 #[derive(Debug)]
 struct Regex {
@@ -40,9 +41,11 @@ impl Regex {
                 },
                 '[' => {
                     let mut char_group = String::new();
-                    let mut error = false;
+                    let (mut error, mut negative) = (false, false);
+
                     loop {
                         match pattern_it.next() {
+                            Some('^') => negative = true,
                             Some(gc) => {
                                 if gc == ']' {
                                     break;
@@ -57,6 +60,8 @@ impl Regex {
                     }
                     if error {
                         RegexType::Invalid
+                    } else if negative {
+                        RegexType::NegCharGroup(char_group)
                     } else {
                         RegexType::CharGroup(char_group)
                     }
@@ -83,21 +88,39 @@ impl Regex {
     where
         I: Iterator<Item = char>,
     {
-        while let Some(c) = it.peek() {
-            let ret_val = match rule {
-                RegexType::Literal(x) => c == x,
-                RegexType::Digit => c.is_ascii_digit(),
-                RegexType::Word => c.is_ascii_alphabetic(),
-                RegexType::CharGroup(char_group) => char_group.contains(*c),
-                _ => false,
-            };
-
-            it.next();
-            if ret_val {
-                return ret_val;
-            }
+        match rule {
+            RegexType::CharGroup(char_group) => it.any(|c| char_group.contains(c)),
+            RegexType::NegCharGroup(char_group) => it.all(|c| !char_group.contains(c)),
+            RegexType::Literal(ch) => it.any(|c| c == *ch),
+            RegexType::Digit => it.any(|c| c.is_ascii_digit()),
+            RegexType::Word => it.any(|c| c.is_ascii_alphabetic()),
+            _ => false,
         }
-        false
+        // while let Some(c) = it.peek() {
+        //     let ret_val = match rule {
+        //         RegexType::Literal(x) => c == x,
+        //         RegexType::Digit => c.is_ascii_digit(),
+        //         RegexType::Word => c.is_ascii_alphabetic(),
+        //         RegexType::CharGroup(char_group) => char_group.contains(*c),
+        //         RegexType::NegCharGroup(char_group) => {
+        //             let mut char_exists = false;
+        //             for ch in &mut *it {
+        //                 if char_group.contains(ch) {
+        //                     char_exists = true;
+        //                     break;
+        //                 }
+        //             }
+        //             !char_exists
+        //         }
+        //         _ => false,
+        //     };
+        //
+        //     it.next();
+        //     if ret_val {
+        //         return ret_val;
+        //     }
+        // }
+        // false
     }
 }
 
@@ -139,5 +162,16 @@ Follow it till 6 pm today
             vec!["Full fathom 5 thq fathe lie", "upper hand has lower brises"],
             search(content, query)
         );
+    }
+
+    #[test]
+    fn neg_char_group_search() {
+        let query = "[^rnq]";
+        let content = "\
+Full fathom 5 thq fathe lie
+upper hand has lower brises
+Follow it till 6 pm today
+";
+        assert_eq!(vec!["Follow it till 6 pm today"], search(content, query));
     }
 }
