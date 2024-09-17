@@ -1,15 +1,91 @@
 use std::iter::Peekable;
 
 pub fn search<'a>(content: &'a str, pattern: &str) -> Vec<&'a str> {
-    let regex = Regex::compile(pattern);
+    // let regex = Regex::compile(pattern);
 
     // println!("{:?}", regex);
     // println!("{content}, {pattern}");
-    let filtered: Vec<&str> = content.lines().filter(|line| regex.execute(line)).collect();
+    let filtered: Vec<&str> = content
+        .lines()
+        .filter(|line| match_line(line, pattern))
+        .collect();
     for line in &filtered {
         println!("{line}");
     }
     filtered
+}
+
+fn match_line(line: &str, pattern: &str) -> bool {
+    let mut line_it = line.chars();
+    let mut pattern_it = pattern.chars();
+    let mut first_match = true;
+    // let mut exact_match = false;
+    while let Some(p) = pattern_it.next() {
+        let matches = match p {
+            '[' => {
+                let mut matches = false;
+                let mut group_chars = String::new();
+                let mut neg = false;
+                // might reset the iterator here
+                for group_char in &mut pattern_it {
+                    if group_char == '^' {
+                        neg = true;
+                        continue;
+                    }
+                    if group_char == ']' {
+                        break;
+                    }
+                    group_chars.push(group_char);
+                }
+
+                while let Some(c) = line_it.next() {
+                    if (group_chars.contains(c) || !first_match) {
+                        matches = true;
+                        break;
+                    }
+                }
+                first_match = false;
+                if neg {
+                    matches = !matches
+                }
+                matches
+            }
+            '\\' => {
+                let mut matches = false;
+                if let Some(group) = pattern_it.next() {
+                    while let Some(c) = line_it.next() {
+                        matches = match group {
+                            'd' => c.is_ascii_digit(),
+
+                            'w' => c.is_alphabetic(),
+                            _ => false,
+                        };
+                        if matches || !first_match {
+                            break;
+                        }
+                    }
+                    first_match = false;
+                    matches
+                } else {
+                    false
+                }
+            }
+            other => {
+                let mut matches = false;
+                while let Some(c) = line_it.next() {
+                    if c == other || !first_match {
+                        matches = c == other;
+                        break;
+                    }
+                }
+                matches
+            }
+        };
+        if !matches {
+            return matches;
+        }
+    }
+    return true;
 }
 
 #[derive(Debug)]
@@ -17,8 +93,9 @@ enum RegexType {
     Invalid,
     Digit,
     Word,
-    Char,
-    Literal(char),
+    Char(char),
+    Literal(String),
+    LiteralFree(String),
     CharGroup(String),
     NegCharGroup(String),
 }
@@ -36,7 +113,7 @@ impl Regex {
                 '\\' => match pattern_it.next() {
                     Some('d') => RegexType::Digit,
                     Some('w') => RegexType::Word,
-                    Some(_) => RegexType::Char,
+                    Some(ch) => RegexType::Char(ch),
                     None => RegexType::Invalid,
                 },
                 '[' => {
@@ -66,12 +143,28 @@ impl Regex {
                         RegexType::CharGroup(char_group)
                     }
                 }
-                c => RegexType::Literal(c),
+                c => RegexType::Char(c),
             };
+
             tree.push(reg_type);
         }
 
-        Regex { tree }
+        // convert consecutive chars to Literal type
+        let mut tree_final: Vec<RegexType> = Vec::new();
+        let mut literals = String::new();
+        for regex_type in tree {
+            match regex_type {
+                RegexType::Char(c) => literals.push(c),
+                rt => {
+                    if !literals.is_empty() {
+                        tree_final.push(RegexType::LiteralFree(literals));
+                        literals = String::new();
+                    }
+                    tree_final.push(rt);
+                }
+            }
+        }
+        Regex { tree: tree_final }
     }
 
     fn execute(&self, line: &str) -> bool {
@@ -89,9 +182,22 @@ impl Regex {
         I: Iterator<Item = char>,
     {
         match rule {
+            RegexType::Char(ch) => it.any(|c| c == *ch),
             RegexType::CharGroup(char_group) => it.any(|c| char_group.contains(c)),
             RegexType::NegCharGroup(char_group) => it.all(|c| !char_group.contains(c)),
-            RegexType::Literal(ch) => it.any(|c| c == *ch),
+            RegexType::LiteralFree(literals) => it.any(|c| literals.contains(c)),
+            RegexType::Literal(literals) => {
+                let mut literal_match = true;
+                for l in literals.chars() {
+                    if let Some(c) = it.next() {
+                        if c != l {
+                            literal_match = false;
+                            break;
+                        }
+                    }
+                }
+                literal_match
+            }
             RegexType::Digit => it.any(|c| c.is_ascii_digit()),
             RegexType::Word => it.any(|c| c.is_ascii_alphabetic()),
             _ => false,
@@ -173,5 +279,17 @@ upper hand has lower brises
 Follow it till 6 pm today
 ";
         assert_eq!(vec!["Follow it till 6 pm today"], search(content, query));
+    }
+
+    #[test]
+    fn combined_pattern_search() {
+        let query = "\\d apple";
+        let content = "\
+1 apple
+2 apples
+3 oranges
+5 app
+";
+        assert_eq!(vec!["1 apple", "2 apples"], search(content, query));
     }
 }
