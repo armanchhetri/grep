@@ -74,6 +74,12 @@ fn match_line(line: &str, pattern: &str) -> bool {
                 first_match = false;
                 true
             }
+            '$' => {
+                first_match = false;
+                // let mut matches = true;
+                line_it.next().is_none()
+            }
+
             other => {
                 let mut matches = false;
                 while let Some(c) = line_it.next() {
@@ -304,5 +310,14 @@ made in nepal
 not made in nepal
 ";
         assert_eq!(vec!["made in nepal"], search(content, query));
+    }
+    #[test]
+    fn string_achor_end() {
+        let query = "made$";
+        let content = "\
+made in nepal
+In nepal made
+";
+        assert_eq!(vec!["In nepal made"], search(content, query));
     }
 }
