@@ -70,6 +70,10 @@ fn match_line(line: &str, pattern: &str) -> bool {
                     false
                 }
             }
+            '^' => {
+                first_match = false;
+                true
+            }
             other => {
                 let mut matches = false;
                 while let Some(c) = line_it.next() {
@@ -291,5 +295,14 @@ Follow it till 6 pm today
 5 app
 ";
         assert_eq!(vec!["1 apple", "2 apples"], search(content, query));
+    }
+    #[test]
+    fn string_anchor() {
+        let query = "^made";
+        let content = "\
+made in nepal
+not made in nepal
+";
+        assert_eq!(vec!["made in nepal"], search(content, query));
     }
 }
