@@ -17,7 +17,7 @@ pub fn search<'a>(content: &'a str, pattern: &str) -> Vec<&'a str> {
 
 fn match_line(line: &str, pattern: &str) -> bool {
     let mut line_it = line.chars().peekable();
-    let mut pattern_it = pattern.chars();
+    let mut pattern_it = pattern.chars().peekable();
     let mut first_match = true;
     // let mut exact_match = false;
     let mut memory: Option<char> = None;
@@ -99,6 +99,10 @@ fn match_line(line: &str, pattern: &str) -> bool {
                     true
                 }
             }
+            '?' => {
+                first_match = false;
+                true
+            }
 
             other => {
                 let mut matches = false;
@@ -106,6 +110,20 @@ fn match_line(line: &str, pattern: &str) -> bool {
                     if c == other || !first_match {
                         matches = c == other;
                         break;
+                    }
+                    if let Some(p) = pattern_it.peek() {
+                        if *p == '?' {
+                            pattern_it.next();
+                            matches = true;
+                            break;
+                        }
+                    }
+                }
+
+                if let Some(p) = pattern_it.peek() {
+                    if *p == '?' {
+                        pattern_it.next();
+                        matches = true;
                     }
                 }
                 first_match = false;
@@ -351,5 +369,15 @@ my cats
 my caaats
 ";
         assert_eq!(vec!["my cats", "my caaats"], search(content, query));
+    }
+    #[test]
+    fn zero_or_more() {
+        let query = "dogs?";
+        let content = "\
+my dog
+their dogs
+his cat
+";
+        assert_eq!(vec!["my dog", "their dogs"], search(content, query));
     }
 }
