@@ -16,10 +16,11 @@ pub fn search<'a>(content: &'a str, pattern: &str) -> Vec<&'a str> {
 }
 
 fn match_line(line: &str, pattern: &str) -> bool {
-    let mut line_it = line.chars();
+    let mut line_it = line.chars().peekable();
     let mut pattern_it = pattern.chars();
     let mut first_match = true;
     // let mut exact_match = false;
+    let mut memory: Option<char> = None;
     while let Some(p) = pattern_it.next() {
         let matches = match p {
             '[' => {
@@ -79,6 +80,25 @@ fn match_line(line: &str, pattern: &str) -> bool {
                 // let mut matches = true;
                 line_it.next().is_none()
             }
+            '+' => {
+                if first_match {
+                    false
+                } else {
+                    first_match = false;
+                    loop {
+                        if let Some(c) = line_it.peek() {
+                            if let Some(m) = memory {
+                                if *c == m {
+                                    let _ = line_it.next();
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    true
+                }
+            }
 
             other => {
                 let mut matches = false;
@@ -88,9 +108,11 @@ fn match_line(line: &str, pattern: &str) -> bool {
                         break;
                     }
                 }
+                first_match = false;
                 matches
             }
         };
+        memory = Some(p);
         if !matches {
             return matches;
         }
@@ -319,5 +341,15 @@ made in nepal
 In nepal made
 ";
         assert_eq!(vec!["In nepal made"], search(content, query));
+    }
+
+    #[test]
+    fn one_or_more() {
+        let query = "ca+ts";
+        let content = "\
+my cats
+my caaats
+";
+        assert_eq!(vec!["my cats", "my caaats"], search(content, query));
     }
 }
