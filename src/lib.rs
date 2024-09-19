@@ -1,4 +1,4 @@
-use std::iter::Peekable;
+use std::{borrow::BorrowMut, iter::Peekable};
 
 pub fn search<'a>(content: &'a str, pattern: &str) -> Vec<&'a str> {
     // let regex = Regex::compile(pattern);
@@ -7,7 +7,7 @@ pub fn search<'a>(content: &'a str, pattern: &str) -> Vec<&'a str> {
     // println!("{content}, {pattern}");
     let filtered: Vec<&str> = content
         .lines()
-        .filter(|line| match_line(line, pattern))
+        .filter(|line| match_it(line, pattern))
         .collect();
     for line in &filtered {
         println!("{line}");
@@ -15,8 +15,17 @@ pub fn search<'a>(content: &'a str, pattern: &str) -> Vec<&'a str> {
     filtered
 }
 
-fn match_line(line: &str, pattern: &str) -> bool {
-    let mut line_it = line.chars().peekable();
+fn match_it(line: &str, pattern: &str) -> bool {
+    let mut line_vec: Vec<char> = line.chars().collect();
+    let mut line_it = line_vec.iter().peekable();
+    return match_line(&mut line_it, pattern);
+}
+
+fn match_line<'a, I>(mut line_it: &mut Peekable<I>, pattern: &str) -> bool
+where
+    I: Iterator<Item = &'a char>,
+    I: Clone,
+{
     let mut pattern_it = pattern.chars().peekable();
     let mut first_match = true;
     // let mut exact_match = false;
@@ -27,7 +36,6 @@ fn match_line(line: &str, pattern: &str) -> bool {
                 let mut matches = false;
                 let mut group_chars = String::new();
                 let mut neg = false;
-                // might reset the iterator here
                 for group_char in &mut pattern_it {
                     if group_char == '^' {
                         neg = true;
@@ -40,7 +48,7 @@ fn match_line(line: &str, pattern: &str) -> bool {
                 }
 
                 while let Some(c) = line_it.next() {
-                    if (group_chars.contains(c) || !first_match) {
+                    if (group_chars.contains(*c) || !first_match) {
                         matches = true;
                         break;
                     }
@@ -71,6 +79,23 @@ fn match_line(line: &str, pattern: &str) -> bool {
                     false
                 }
             }
+            '(' => {
+                first_match = false;
+                let sub_patterns = get_all_sub_patterns(&mut pattern_it);
+                let mut matches = false;
+                for pattern in sub_patterns {
+                    let mut copied_line_it = line_it.clone();
+                    // let mut line_it_copied = copied.iter().peekable();
+
+                    if match_line(&mut copied_line_it, &pattern) {
+                        // this is to read in original iterator
+                        match_line(line_it, &pattern);
+                        matches = true;
+                        break;
+                    }
+                }
+                matches
+            }
             '^' => {
                 first_match = false;
                 true
@@ -93,7 +118,7 @@ fn match_line(line: &str, pattern: &str) -> bool {
                     loop {
                         if let Some(c) = line_it.peek() {
                             if let Some(m) = memory {
-                                if *c == m {
+                                if **c == m {
                                     let _ = line_it.next();
                                 } else {
                                     break;
@@ -112,7 +137,7 @@ fn match_line(line: &str, pattern: &str) -> bool {
             other => {
                 let mut matches = false;
                 while let Some(c) = line_it.peek() {
-                    if *c == other {
+                    if **c == other {
                         matches = true;
                         line_it.next();
                         break;
@@ -152,12 +177,38 @@ fn match_line(line: &str, pattern: &str) -> bool {
     return true;
 }
 
-fn consume_one_or_more<I>(it: &mut Peekable<I>, c: char)
+// expected input
+// abc|cde|efg)
+fn get_all_sub_patterns<I>(pattern_it: &mut I) -> Vec<String>
 where
     I: Iterator<Item = char>,
 {
+    let mut sub_patterns = Vec::new();
+
+    let mut acc = String::new();
+    while let Some(c) = pattern_it.next() {
+        if c == ')' {
+            if !acc.is_empty() {
+                sub_patterns.push(acc);
+            }
+            break;
+        }
+        if c == '|' && !acc.is_empty() {
+            sub_patterns.push(acc);
+            acc = String::new();
+            continue;
+        }
+        acc.push(c);
+    }
+    sub_patterns
+}
+
+fn consume_one_or_more<'a, I>(it: &mut Peekable<I>, c: char)
+where
+    I: Iterator<Item = &'a char>,
+{
     while let Some(x) = it.peek() {
-        if *x != c {
+        if **x != c {
             break;
         }
         it.next();
@@ -415,5 +466,17 @@ dig
 god
 ";
         assert_eq!(vec!["dog", "dig"], search(content, query));
+    }
+
+    #[test]
+    fn alternation() {
+        let query = "(cat|dog)";
+        let content = "\
+dog
+cat
+my cat
+my god
+";
+        assert_eq!(vec!["dog", "cat", "my cat"], search(content, query));
     }
 }
