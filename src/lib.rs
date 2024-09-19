@@ -80,6 +80,11 @@ fn match_line(line: &str, pattern: &str) -> bool {
                 // let mut matches = true;
                 line_it.next().is_none()
             }
+            '.' => {
+                first_match = false;
+                line_it.next();
+                true
+            }
             '+' => {
                 if first_match {
                     false
@@ -400,5 +405,15 @@ act
 cat
 ";
         assert_eq!(vec!["caat", "act", "cat"], search(content, query));
+    }
+    #[test]
+    fn single_wildcard() {
+        let query = "d.g";
+        let content = "\
+dog
+dig
+god
+";
+        assert_eq!(vec!["dog", "dig"], search(content, query));
     }
 }
