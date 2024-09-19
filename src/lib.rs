@@ -51,16 +51,38 @@ where
                     group_chars.push(group_char);
                 }
 
-                while let Some(c) = line_it.next() {
-                    matched_seq.push(*c);
-                    if (group_chars.contains(*c) || !first_match) {
-                        matches = true;
-                        break;
+                if neg {
+                    matches = true;
+                    while let Some(c) = line_it.next() {
+                        if group_chars.contains(*c) {
+                            matches = false;
+                            break;
+                        }
+                        if !first_match {
+                            matches = true;
+                            break;
+                        }
+                        matched_seq.push(*c);
+                    }
+                } else {
+                    while let Some(c) = line_it.next() {
+                        if group_chars.contains(*c) {
+                            matched_seq.push(*c);
+                            matches = true;
+                            break;
+                        }
+                        if !first_match {
+                            matches = false;
+                            break;
+                        }
                     }
                 }
+
                 first_match = false;
                 if neg {
-                    matches = !matches
+                    temp_memory = Memory::NegativeGroup(group_chars);
+                } else {
+                    temp_memory = Memory::PositiveGroup(group_chars);
                 }
                 matches
             }
@@ -146,20 +168,22 @@ where
                     false
                 } else {
                     first_match = false;
-                    loop {
-                        if let Some(c) = line_it.peek() {
-                            let has_match = match memory {
-                                Memory::Value(m) => m == **c,
-                                Memory::Alphabetic => c.is_alphabetic(),
-                                Memory::Numeric => c.is_numeric(),
-                                Memory::None => false,
-                            };
-                            if !has_match {
-                                break;
-                            }
-                            matched_seq.push(*line_it.next().unwrap());
+
+                    while let Some(c) = line_it.peek() {
+                        let has_match = match memory {
+                            Memory::Value(m) => m == **c,
+                            Memory::Alphabetic => c.is_alphabetic(),
+                            Memory::Numeric => c.is_numeric(),
+                            Memory::PositiveGroup(ref g) => g.contains(**c),
+                            Memory::NegativeGroup(ref g) => !g.contains(**c),
+                            Memory::None => false,
+                        };
+                        if !has_match {
+                            break;
                         }
+                        matched_seq.push(*line_it.next().unwrap());
                     }
+
                     true
                 }
             }
@@ -203,10 +227,10 @@ where
                 matches
             }
         };
-        if temp_memory != Memory::None {
-            memory = temp_memory;
-        } else {
+        if temp_memory == Memory::None {
             memory = Memory::Value(p);
+        } else {
+            memory = temp_memory;
         }
         if !matches {
             return String::new();
@@ -218,6 +242,8 @@ where
 #[derive(PartialEq)]
 enum Memory {
     Value(char),
+    PositiveGroup(String),
+    NegativeGroup(String),
     Alphabetic,
     Numeric,
     None,
@@ -447,9 +473,9 @@ Follow it till 6 pm today
     fn neg_char_group_search() {
         let query = "[^rnq]";
         let content = "\
+Follow it till 6 pm today
 Full fathom 5 thq fathe lie
 upper hand has lower brises
-Follow it till 6 pm today
 ";
         assert_eq!(vec!["Follow it till 6 pm today"], search(content, query));
     }
@@ -535,5 +561,14 @@ dog and dog
 cat and dog
 ";
         assert_eq!(vec!["cat and cat", "dog and dog"], search(content, query));
+    }
+
+    #[test]
+    fn a_complex_pattern() {
+        let query = "([abcd]+) is \\1, not [^xyz]+";
+        let content = "\
+abcd is abcd, not efg
+";
+        assert_eq!(vec!["abcd is abcd, not efg"], search(content, query));
     }
 }
