@@ -203,7 +203,6 @@ where
                     if let Some(question) = pattern_it.peek() {
                         if *question == '?' {
                             pattern_it.next();
-                            consume_one_or_more(&mut line_it, other);
                             matches = true;
                             break;
                         }
@@ -219,7 +218,6 @@ where
                 if let Some(question) = pattern_it.peek() {
                     if *question == '?' {
                         pattern_it.next();
-                        consume_one_or_more(&mut line_it, other);
                         matches = true;
                     }
                 }
@@ -275,7 +273,7 @@ where
     sub_patterns
 }
 
-fn consume_one_or_more<'a, I>(it: &mut Peekable<I>, c: char)
+fn consume_more<'a, I>(it: &mut Peekable<I>, c: char, mut times: i32)
 where
     I: Iterator<Item = &'a char>,
 {
@@ -283,6 +281,10 @@ where
         if **x != c {
             break;
         }
+        if times == 0 {
+            break;
+        }
+        times -= 1;
         it.next();
     }
 }
@@ -520,14 +522,14 @@ my caaats
         assert_eq!(vec!["my cats", "my caaats"], search(content, query));
     }
     #[test]
-    fn zero_or_more() {
+    fn zero_or_one() {
         let query = "ca?t";
         let content = "\
 caat
 act
 cat
 ";
-        assert_eq!(vec!["caat", "act", "cat"], search(content, query));
+        assert_eq!(vec!["act", "cat"], search(content, query));
     }
     #[test]
     fn single_wildcard() {
@@ -564,11 +566,20 @@ cat and dog
     }
 
     #[test]
-    fn a_complex_pattern() {
+    fn negative_group_at_end() {
         let query = "([abcd]+) is \\1, not [^xyz]+";
         let content = "\
 abcd is abcd, not efg
 ";
         assert_eq!(vec!["abcd is abcd, not efg"], search(content, query));
+    }
+
+    #[test]
+    fn capture_group_with_zero_or_more() {
+        let query = "once a (drea+mer), alwaysz? a \\1";
+        let content = "\
+once a dreaaamer, alwayszzz a dreaaamer
+";
+        assert!(search(content, query).is_empty());
     }
 }
