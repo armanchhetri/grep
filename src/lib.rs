@@ -106,23 +106,32 @@ fn match_line(line: &str, pattern: &str) -> bool {
 
             other => {
                 let mut matches = false;
-                while let Some(c) = line_it.next() {
-                    if c == other || !first_match {
-                        matches = c == other;
+                while let Some(c) = line_it.peek() {
+                    if *c == other {
+                        matches = true;
+                        line_it.next();
                         break;
                     }
-                    if let Some(p) = pattern_it.peek() {
-                        if *p == '?' {
+                    if let Some(question) = pattern_it.peek() {
+                        if *question == '?' {
                             pattern_it.next();
+                            consume_one_or_more(&mut line_it, other);
                             matches = true;
                             break;
                         }
                     }
+                    if !first_match {
+                        line_it.next();
+                        matches = false;
+                        break;
+                    }
+                    line_it.next();
                 }
 
-                if let Some(p) = pattern_it.peek() {
-                    if *p == '?' {
+                if let Some(question) = pattern_it.peek() {
+                    if *question == '?' {
                         pattern_it.next();
+                        consume_one_or_more(&mut line_it, other);
                         matches = true;
                     }
                 }
@@ -136,6 +145,18 @@ fn match_line(line: &str, pattern: &str) -> bool {
         }
     }
     return true;
+}
+
+fn consume_one_or_more<I>(it: &mut Peekable<I>, c: char)
+where
+    I: Iterator<Item = char>,
+{
+    while let Some(x) = it.peek() {
+        if *x != c {
+            break;
+        }
+        it.next();
+    }
 }
 
 #[derive(Debug)]
@@ -343,7 +364,7 @@ Follow it till 6 pm today
         assert_eq!(vec!["1 apple", "2 apples"], search(content, query));
     }
     #[test]
-    fn string_anchor() {
+    fn string_anchor_start() {
         let query = "^made";
         let content = "\
 made in nepal
@@ -372,12 +393,12 @@ my caaats
     }
     #[test]
     fn zero_or_more() {
-        let query = "dogs?";
+        let query = "ca?t";
         let content = "\
-my dog
-their dogs
-his cat
+caat
+act
+cat
 ";
-        assert_eq!(vec!["my dog", "their dogs"], search(content, query));
+        assert_eq!(vec!["caat", "act", "cat"], search(content, query));
     }
 }
