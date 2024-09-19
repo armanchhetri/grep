@@ -1,4 +1,4 @@
-use std::{borrow::BorrowMut, iter::Peekable};
+use std::{arch::x86_64::CpuidResult, borrow::BorrowMut, iter::Peekable};
 
 pub fn search<'a>(content: &'a str, pattern: &str) -> Vec<&'a str> {
     // let regex = Regex::compile(pattern);
@@ -18,19 +18,23 @@ pub fn search<'a>(content: &'a str, pattern: &str) -> Vec<&'a str> {
 fn match_it(line: &str, pattern: &str) -> bool {
     let mut line_vec: Vec<char> = line.chars().collect();
     let mut line_it = line_vec.iter().peekable();
-    return match_line(&mut line_it, pattern);
+    let matched_seq = match_line(&mut line_it, pattern);
+    return !matched_seq.is_empty();
 }
 
-fn match_line<'a, I>(mut line_it: &mut Peekable<I>, pattern: &str) -> bool
+fn match_line<'a, I>(mut line_it: &mut Peekable<I>, pattern: &str) -> String
 where
     I: Iterator<Item = &'a char>,
     I: Clone,
 {
     let mut pattern_it = pattern.chars().peekable();
     let mut first_match = true;
+    let mut matched_seq = String::new();
     // let mut exact_match = false;
-    let mut memory: Option<char> = None;
+    let mut memory: Memory = Memory::None;
+    let mut capture_groups: Vec<String> = Vec::new();
     while let Some(p) = pattern_it.next() {
+        let mut temp_memory = Memory::None;
         let matches = match p {
             '[' => {
                 let mut matches = false;
@@ -48,6 +52,7 @@ where
                 }
 
                 while let Some(c) = line_it.next() {
+                    matched_seq.push(*c);
                     if (group_chars.contains(*c) || !first_match) {
                         matches = true;
                         break;
@@ -61,18 +66,36 @@ where
             }
             '\\' => {
                 let mut matches = false;
-                if let Some(group) = pattern_it.next() {
-                    while let Some(c) = line_it.next() {
-                        matches = match group {
-                            'd' => c.is_ascii_digit(),
+                if let Some(directive) = pattern_it.next() {
+                    if directive.is_numeric() {
+                        let index: usize = directive.to_digit(10).unwrap() as usize;
+                        assert!(index > 0 && capture_groups.len() <= index as usize);
+                        let pattern: &String = &capture_groups[index - 1];
+                        let matched_substring = match_line(line_it, &pattern);
+                        matched_seq.push_str(&matched_substring);
+                        matches = !matched_substring.is_empty()
+                    } else {
+                        while let Some(c) = line_it.next() {
+                            matched_seq.push(*c);
+                            matches = match directive {
+                                'd' => {
+                                    temp_memory = Memory::Numeric;
+                                    c.is_ascii_digit()
+                                }
 
-                            'w' => c.is_alphabetic(),
-                            _ => false,
-                        };
-                        if matches || !first_match {
-                            break;
+                                'w' => {
+                                    temp_memory = Memory::Alphabetic;
+                                    c.is_alphabetic()
+                                }
+                                _ => false,
+                            };
+
+                            if matches || !first_match {
+                                break;
+                            }
                         }
                     }
+
                     first_match = false;
                     matches
                 } else {
@@ -87,10 +110,14 @@ where
                     let mut copied_line_it = line_it.clone();
                     // let mut line_it_copied = copied.iter().peekable();
 
-                    if match_line(&mut copied_line_it, &pattern) {
+                    let matched_substring = match_line(&mut copied_line_it, &pattern);
+
+                    if !matched_substring.is_empty() {
+                        matched_seq.push_str(&matched_substring);
                         // this is to read in original iterator
                         match_line(line_it, &pattern);
                         matches = true;
+                        capture_groups.push(matched_substring);
                         break;
                     }
                 }
@@ -107,8 +134,12 @@ where
             }
             '.' => {
                 first_match = false;
-                line_it.next();
-                true
+                if let Some(c) = line_it.next() {
+                    matched_seq.push(*c);
+                    true
+                } else {
+                    false
+                }
             }
             '+' => {
                 if first_match {
@@ -117,13 +148,16 @@ where
                     first_match = false;
                     loop {
                         if let Some(c) = line_it.peek() {
-                            if let Some(m) = memory {
-                                if **c == m {
-                                    let _ = line_it.next();
-                                } else {
-                                    break;
-                                }
+                            let has_match = match memory {
+                                Memory::Value(m) => m == **c,
+                                Memory::Alphabetic => c.is_alphabetic(),
+                                Memory::Numeric => c.is_numeric(),
+                                Memory::None => false,
+                            };
+                            if !has_match {
+                                break;
                             }
+                            matched_seq.push(*line_it.next().unwrap());
                         }
                     }
                     true
@@ -139,7 +173,7 @@ where
                 while let Some(c) = line_it.peek() {
                     if **c == other {
                         matches = true;
-                        line_it.next();
+                        matched_seq.push(*line_it.next().unwrap());
                         break;
                     }
                     if let Some(question) = pattern_it.peek() {
@@ -151,11 +185,11 @@ where
                         }
                     }
                     if !first_match {
-                        line_it.next();
+                        matched_seq.push(*line_it.next().unwrap());
                         matches = false;
                         break;
                     }
-                    line_it.next();
+                    matched_seq.push(*line_it.next().unwrap());
                 }
 
                 if let Some(question) = pattern_it.peek() {
@@ -169,12 +203,24 @@ where
                 matches
             }
         };
-        memory = Some(p);
+        if temp_memory != Memory::None {
+            memory = temp_memory;
+        } else {
+            memory = Memory::Value(p);
+        }
         if !matches {
-            return matches;
+            return String::new();
         }
     }
-    return true;
+    return matched_seq;
+}
+
+#[derive(PartialEq)]
+enum Memory {
+    Value(char),
+    Alphabetic,
+    Numeric,
+    None,
 }
 
 // expected input
@@ -478,5 +524,16 @@ my cat
 my god
 ";
         assert_eq!(vec!["dog", "cat", "my cat"], search(content, query));
+    }
+
+    #[test]
+    fn capture_groups() {
+        let query = "(\\w+) and \\1";
+        let content = "\
+cat and cat
+dog and dog
+cat and dog
+";
+        assert_eq!(vec!["cat and cat", "dog and dog"], search(content, query));
     }
 }
