@@ -91,7 +91,7 @@ where
                 if let Some(directive) = pattern_it.next() {
                     if directive.is_numeric() {
                         let index: usize = directive.to_digit(10).unwrap() as usize;
-                        assert!(index > 0 && capture_groups.len() <= index as usize);
+                        assert!(index > 0 && index <= capture_groups.len());
                         let pattern: &String = &capture_groups[index - 1];
                         let matched_substring = match_line(line_it, &pattern);
                         matched_seq.push_str(&matched_substring);
@@ -581,5 +581,18 @@ abcd is abcd, not efg
 once a dreaaamer, alwayszzz a dreaaamer
 ";
         assert!(search(content, query).is_empty());
+    }
+
+    #[test]
+    fn multiple_capture_groups() {
+        let query = "(\\d+) (\\w+) squares and \\1 \\2 circles";
+        let content = "\
+3 red squares and 3 red circles
+3 red squares and 4 red circles
+";
+        assert_eq!(
+            vec!["3 red squares and 3 red circles"],
+            search(content, query)
+        );
     }
 }
