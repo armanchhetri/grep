@@ -18,17 +18,17 @@ pub fn search<'a>(content: &'a str, pattern: &str) -> Vec<&'a str> {
 fn match_it(line: &str, pattern: &str) -> bool {
     let mut line_vec: Vec<char> = line.chars().collect();
     let mut line_it = line_vec.iter().peekable();
-    let matched_seq = match_line(&mut line_it, pattern);
+    let matched_seq = match_line(&mut line_it, pattern, true);
     return !matched_seq.is_empty();
 }
 
-fn match_line<'a, I>(mut line_it: &mut Peekable<I>, pattern: &str) -> String
+fn match_line<'a, I>(mut line_it: &mut Peekable<I>, pattern: &str, mut first_match: bool) -> String
 where
     I: Iterator<Item = &'a char>,
     I: Clone,
 {
     let mut pattern_it = pattern.chars().peekable();
-    let mut first_match = true;
+    // let mut first_match = true;
     let mut matched_seq = String::new();
     // let mut exact_match = false;
     let mut memory: Memory = Memory::None;
@@ -93,7 +93,7 @@ where
                         let index: usize = directive.to_digit(10).unwrap() as usize;
                         assert!(index > 0 && index <= capture_groups.len());
                         let pattern: &String = &capture_groups[index - 1];
-                        let matched_substring = match_line(line_it, &pattern);
+                        let matched_substring = match_line(line_it, &pattern, false);
                         matched_seq.push_str(&matched_substring);
                         matches = !matched_substring.is_empty()
                     } else {
@@ -125,24 +125,24 @@ where
                 }
             }
             '(' => {
-                first_match = false;
                 let sub_patterns = get_all_sub_patterns(&mut pattern_it);
                 let mut matches = false;
                 for pattern in sub_patterns {
                     let mut copied_line_it = line_it.clone();
                     // let mut line_it_copied = copied.iter().peekable();
 
-                    let matched_substring = match_line(&mut copied_line_it, &pattern);
+                    let matched_substring = match_line(&mut copied_line_it, &pattern, first_match);
 
                     if !matched_substring.is_empty() {
                         matched_seq.push_str(&matched_substring);
                         // this is to read in original iterator
-                        match_line(line_it, &pattern);
+                        match_line(line_it, &pattern, first_match);
                         matches = true;
                         capture_groups.push(matched_substring);
                         break;
                     }
                 }
+                first_match = false;
                 matches
             }
             '^' => {
@@ -594,5 +594,14 @@ once a dreaaamer, alwayszzz a dreaaamer
             vec!["3 red squares and 3 red circles"],
             search(content, query)
         );
+    }
+    #[test]
+    fn multiple_capture_groups_with_anchors() {
+        let query = "^(apple) (\\w+), \\1 and \\2$";
+        let content = "\
+pineapple pie, pineapple and pie
+apple pie, apple and pie
+";
+        assert_eq!(vec!["apple pie, apple and pie"], search(content, query));
     }
 }
