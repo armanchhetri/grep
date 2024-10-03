@@ -173,7 +173,6 @@ where
                         // this is to read in original iterator
                         match_line(line_it, &pattern, first_match, capture_group, count, 0);
                         matches = true;
-                        // capture_groups.push(matched_substring);
                         break;
                     }
                 }
