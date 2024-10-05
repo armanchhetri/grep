@@ -337,7 +337,7 @@ where
                 break;
             }
         }
-        if c == '|' && !acc.is_empty() {
+        if c == '|' && !acc.is_empty() && (bracket_stack.len() == 1) {
             sub_patterns.push(acc.clone());
             acc = String::new();
             continue;
@@ -516,10 +516,27 @@ mod tests {
             get_all_sub_patterns(&mut pattern.chars()),
             vec!["'(cat) and \\2'"]
         );
+        let pattern = "(c.t|d.g) and (f..h|b..d))";
+        assert_eq!(
+            get_all_sub_patterns(&mut pattern.chars()),
+            vec!["(c.t|d.g) and (f..h|b..d)"]
+        )
     }
 
     #[test]
-    fn a_complex_pattern() {
+    fn anything_with_capture_group() {
+        let query = "((c.t|d.g) and (f..h|b..d)), \\2 with \\3, \\1";
+        let content = "\
+cat and fish, cat with fish, cat and fish
+abc-def is abc-def, not efg, abc, or def
+    ";
+        assert_eq!(
+            vec!["cat and fish, cat with fish, cat and fish"],
+            search(content, query)
+        );
+    }
+    #[test]
+    fn greedy_neagative_search_with_capture_group() {
         let query = "(([abc]+)-([def]+)) is \\1, not ([^xyz]+), \\2, or \\3";
         let content = "\
 grep 101 is doing grep 101 times, and again grep 101 times
