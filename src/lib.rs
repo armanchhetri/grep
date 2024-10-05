@@ -21,30 +21,24 @@ fn match_it(line: &str, pattern: &str) -> bool {
     let mut line_vec: Vec<char> = line.chars().collect();
     let mut line_it = line_vec.iter().peekable();
     let mut capture_group: HashMap<i32, String> = HashMap::new();
-    let mut count = 0;
-    let matched_seq = match_line(
-        &mut line_it,
-        pattern,
-        true,
-        &mut capture_group,
-        &mut count,
-        -1,
-    );
+
+    let matched_seq = match_line(&mut line_it, pattern, true, &mut capture_group, 0);
     return !matched_seq.is_empty();
 }
 
 fn match_line<'a, I>(
-    line_it: &mut Peekable<I>,
+    mut line_it: &mut Peekable<I>,
     pattern: &str,
     mut first_match: bool,
     capture_group: &mut HashMap<i32, String>,
-    count: &mut i32,
-    depth: i32,
+    curr_idx: i32,
 ) -> String
 where
     I: Iterator<Item = &'a char>,
     I: Clone,
 {
+    let mut next_idx = curr_idx;
+    // let mut copied_line_it: &mut Peekable<I>;
     let mut pattern_it = pattern.chars().peekable();
     // let mut first_match = true;
     let mut matched_seq = String::new();
@@ -113,10 +107,8 @@ where
                         // let pattern: &String = &capture_groups[index - 1];
                         println!("index: {index}, map: {:?}", capture_group);
                         let pattern = capture_group.get(&index).unwrap().clone();
-                        // let pattern = String::from("Hello");
-                        let mut temp_count = -100;
                         let matched_substring =
-                            match_line(line_it, &pattern, false, capture_group, &mut temp_count, 0);
+                            match_line(line_it, &pattern, false, capture_group, -100);
 
                         matched_seq.push_str(&matched_substring);
                         matches = !matched_substring.is_empty()
@@ -149,33 +141,45 @@ where
                 }
             }
             '(' => {
-                *count += 1;
+                next_idx += 1;
                 let sub_patterns = get_all_sub_patterns(&mut pattern_it);
-                println!("Pattern = {:?}", pattern);
-                println!("subpatterns = {:?}", sub_patterns);
-                let mut matches = false;
-                for pattern in sub_patterns {
-                    let mut copied_line_it = line_it.clone();
-                    // let mut line_it_copied = copied.iter().peekable();
 
+                let mut matches = false;
+
+                if sub_patterns.len() == 1 {
                     let matched_substring = match_line(
-                        &mut copied_line_it,
-                        &pattern,
+                        &mut line_it,
+                        &sub_patterns[0],
                         first_match,
                         capture_group,
-                        count,
-                        depth + 1,
+                        next_idx,
                     );
-                    // println!("{:?}", capture_group.get(&(count + 1)));
-
                     if !matched_substring.is_empty() {
                         matched_seq.push_str(&matched_substring);
-                        // this is to read in original iterator
-                        match_line(line_it, &pattern, first_match, capture_group, count, 0);
                         matches = true;
-                        break;
+                    }
+                } else {
+                    for pattern in sub_patterns {
+                        let mut copied_line_it = line_it.clone();
+
+                        let matched_substring = match_line(
+                            &mut copied_line_it,
+                            &pattern,
+                            first_match,
+                            capture_group,
+                            next_idx,
+                        );
+
+                        if !matched_substring.is_empty() {
+                            matched_seq.push_str(&matched_substring);
+                            // this is to read in original iterator, could not get around borrow checker :(
+                            match_line(line_it, &pattern, first_match, capture_group, -100);
+                            matches = true;
+                            break;
+                        }
                     }
                 }
+
                 first_match = false;
                 matches
             }
@@ -268,10 +272,16 @@ where
             return String::new();
         }
     }
-    capture_group.insert(*count, matched_seq.clone());
-    if depth > 0 {
-        *count -= 1;
-    }
+    println!(
+        "capture_group before inserting {} = {:?}",
+        curr_idx, capture_group
+    );
+    capture_group.insert(curr_idx, matched_seq.clone());
+    println!(
+        "capture_group after inserting {} = {:?}",
+        curr_idx, capture_group
+    );
+
     return matched_seq;
 }
 
@@ -488,6 +498,18 @@ mod tests {
         );
     }
 
+    #[test]
+    fn nested_and_multiple_capture_group() {
+        let query = "((\\w\\w\\w\\w) (\\d\\d\\d)) is doing \\2 \\3 times, and again \\1 times";
+        let content = "\
+grep 101 is doing grep 101 times, and again grep 101 times
+3 red squares and 4 red circles
+";
+        assert_eq!(
+            vec!["grep 101 is doing grep 101 times, and again grep 101 times"],
+            search(content, query)
+        );
+    }
     #[test]
     fn multiple_capture_groups() {
         let query = "(\\d+) (\\w+) squares and \\1 \\2 circles";
