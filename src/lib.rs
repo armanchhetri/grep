@@ -22,7 +22,7 @@ fn match_it(line: &str, pattern: &str) -> bool {
     let mut line_it = line_vec.iter().peekable();
     let mut capture_group: HashMap<i32, String> = HashMap::new();
 
-    let matched_seq = match_line(&mut line_it, pattern, true, &mut capture_group, 0);
+    let (matched_seq, _) = match_line(&mut line_it, pattern, true, &mut capture_group, 0, None);
     return !matched_seq.is_empty();
 }
 
@@ -32,7 +32,8 @@ fn match_line<'a, I>(
     mut first_match: bool,
     capture_group: &mut HashMap<i32, String>,
     curr_idx: i32,
-) -> String
+    plus_until: Option<&char>, // this is to handle the greedy case such as ([^abc]+),
+) -> (String, i32)
 where
     I: Iterator<Item = &'a char>,
     I: Clone,
@@ -66,11 +67,13 @@ where
                 if neg {
                     matches = true;
                     while let Some(c) = line_it.next() {
+                        // this iteration is to handle the first match
                         if group_chars.contains(*c) {
                             matches = false;
                             break;
                         }
                         if !first_match {
+                            matched_seq.push(*c);
                             matches = true;
                             break;
                         }
@@ -107,8 +110,8 @@ where
                         // let pattern: &String = &capture_groups[index - 1];
                         println!("index: {index}, map: {:?}", capture_group);
                         let pattern = capture_group.get(&index).unwrap().clone();
-                        let matched_substring =
-                            match_line(line_it, &pattern, false, capture_group, -100);
+                        let (matched_substring, _) =
+                            match_line(line_it, &pattern, false, capture_group, -100, plus_until);
 
                         matched_seq.push_str(&matched_substring);
                         matches = !matched_substring.is_empty()
@@ -143,16 +146,19 @@ where
             '(' => {
                 next_idx += 1;
                 let sub_patterns = get_all_sub_patterns(&mut pattern_it);
+                let next_in_pattern = pattern_it.peek();
 
                 let mut matches = false;
+                let mut matched_substring;
 
                 if sub_patterns.len() == 1 {
-                    let matched_substring = match_line(
+                    (matched_substring, next_idx) = match_line(
                         &mut line_it,
                         &sub_patterns[0],
                         first_match,
                         capture_group,
                         next_idx,
+                        next_in_pattern,
                     );
                     if !matched_substring.is_empty() {
                         matched_seq.push_str(&matched_substring);
@@ -162,18 +168,26 @@ where
                     for pattern in sub_patterns {
                         let mut copied_line_it = line_it.clone();
 
-                        let matched_substring = match_line(
+                        (matched_substring, next_idx) = match_line(
                             &mut copied_line_it,
                             &pattern,
                             first_match,
                             capture_group,
                             next_idx,
+                            next_in_pattern,
                         );
 
                         if !matched_substring.is_empty() {
                             matched_seq.push_str(&matched_substring);
                             // this is to read in original iterator, could not get around borrow checker :(
-                            match_line(line_it, &pattern, first_match, capture_group, -100);
+                            match_line(
+                                line_it,
+                                &pattern,
+                                first_match,
+                                capture_group,
+                                -100,
+                                next_in_pattern,
+                            );
                             matches = true;
                             break;
                         }
@@ -213,7 +227,13 @@ where
                             Memory::Alphabetic => c.is_alphabetic(),
                             Memory::Numeric => c.is_numeric(),
                             Memory::PositiveGroup(ref g) => g.contains(**c),
-                            Memory::NegativeGroup(ref g) => !g.contains(**c),
+                            Memory::NegativeGroup(ref g) => {
+                                println!("NEgative group: {c}, next_pattern = {:?}", plus_until);
+                                match plus_until {
+                                    Some(next_in_pat) => !g.contains(**c) && *next_in_pat != **c,
+                                    _ => !g.contains(**c),
+                                }
+                            }
                             Memory::None => false,
                         };
                         if !has_match {
@@ -269,7 +289,7 @@ where
             memory = temp_memory;
         }
         if !matches {
-            return String::new();
+            return (String::new(), next_idx);
         }
     }
     println!(
@@ -282,7 +302,7 @@ where
         curr_idx, capture_group
     );
 
-    return matched_seq;
+    return (matched_seq, next_idx);
 }
 
 #[derive(PartialEq)]
@@ -495,6 +515,19 @@ mod tests {
         assert_eq!(
             get_all_sub_patterns(&mut pattern.chars()),
             vec!["'(cat) and \\2'"]
+        );
+    }
+
+    #[test]
+    fn a_complex_pattern() {
+        let query = "(([abc]+)-([def]+)) is \\1, not ([^xyz]+), \\2, or \\3";
+        let content = "\
+grep 101 is doing grep 101 times, and again grep 101 times
+abc-def is abc-def, not efg, abc, or def
+    ";
+        assert_eq!(
+            vec!["abc-def is abc-def, not efg, abc, or def"],
+            search(content, query)
         );
     }
 
