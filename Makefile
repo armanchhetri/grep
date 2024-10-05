@@ -1,2 +1,6 @@
-stack-test:
-	cargo test --package codecrafters-grep --lib -- stack::tests
+test:
+	cargo test --lib 
+
+build:
+	cargo build --release
+

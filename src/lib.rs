@@ -1,12 +1,6 @@
-pub mod stack;
-
 use std::{collections::HashMap, iter::Peekable};
 
 pub fn search<'a>(content: &'a str, pattern: &str) -> Vec<&'a str> {
-    // let regex = Regex::compile(pattern);
-
-    // println!("{:?}", regex);
-    // println!("{content}, {pattern}");
     let filtered: Vec<&str> = content
         .lines()
         .filter(|line| match_it(line, pattern))
@@ -18,7 +12,7 @@ pub fn search<'a>(content: &'a str, pattern: &str) -> Vec<&'a str> {
 }
 
 fn match_it(line: &str, pattern: &str) -> bool {
-    let mut line_vec: Vec<char> = line.chars().collect();
+    let line_vec: Vec<char> = line.chars().collect();
     let mut line_it = line_vec.iter().peekable();
     let mut capture_group: HashMap<i32, String> = HashMap::new();
 
@@ -26,48 +20,43 @@ fn match_it(line: &str, pattern: &str) -> bool {
     return !matched_seq.is_empty();
 }
 
+#[derive(PartialEq)]
+enum Memory {
+    Value(char),
+    PositiveGroup(String),
+    NegativeGroup(String),
+    Alphabetic,
+    Numeric,
+    None,
+}
+
 fn match_line<'a, I>(
-    mut line_it: &mut Peekable<I>,
+    line_it: &mut Peekable<I>,
     pattern: &str,
     mut first_match: bool,
     capture_group: &mut HashMap<i32, String>,
     curr_idx: i32,
-    plus_until: Option<&char>, // this is to handle the greedy case such as ([^abc]+),
+    next_in_pattern: Option<&char>, // this is to handle the greedy case such as ([^abc]+),
 ) -> (String, i32)
 where
     I: Iterator<Item = &'a char>,
     I: Clone,
 {
     let mut next_idx = curr_idx;
-    // let mut copied_line_it: &mut Peekable<I>;
     let mut pattern_it = pattern.chars().peekable();
-    // let mut first_match = true;
     let mut matched_seq = String::new();
-    // let mut exact_match = false;
     let mut memory: Memory = Memory::None;
-    let mut capture_groups: Vec<String> = Vec::new();
+
     while let Some(p) = pattern_it.next() {
         let mut temp_memory = Memory::None;
         let matches = match p {
             '[' => {
                 let mut matches = false;
-                let mut group_chars = String::new();
-                let mut neg = false;
-                for group_char in &mut pattern_it {
-                    if group_char == '^' {
-                        neg = true;
-                        continue;
-                    }
-                    if group_char == ']' {
-                        break;
-                    }
-                    group_chars.push(group_char);
-                }
-
+                let (group_chars, neg) = get_group_chars(&mut pattern_it);
                 if neg {
                     matches = true;
-                    while let Some(c) = line_it.next() {
-                        // this iteration is to handle the first match
+                    for c in &mut *line_it {
+                        // the iteration is to handle the first match
                         if group_chars.contains(*c) {
                             matches = false;
                             break;
@@ -79,8 +68,9 @@ where
                         }
                         matched_seq.push(*c);
                     }
+                    temp_memory = Memory::NegativeGroup(group_chars);
                 } else {
-                    while let Some(c) = line_it.next() {
+                    for c in &mut *line_it {
                         if group_chars.contains(*c) {
                             matched_seq.push(*c);
                             matches = true;
@@ -91,14 +81,10 @@ where
                             break;
                         }
                     }
+                    temp_memory = Memory::PositiveGroup(group_chars);
                 }
 
                 first_match = false;
-                if neg {
-                    temp_memory = Memory::NegativeGroup(group_chars);
-                } else {
-                    temp_memory = Memory::PositiveGroup(group_chars);
-                }
                 matches
             }
             '\\' => {
@@ -107,17 +93,21 @@ where
                     if directive.is_numeric() {
                         let index: i32 = directive.to_digit(10).unwrap() as i32;
                         assert!(index > 0);
-                        // let pattern: &String = &capture_groups[index - 1];
-                        println!("index: {index}, map: {:?}", capture_group);
                         let pattern = capture_group.get(&index).unwrap().clone();
-                        let (matched_substring, _) =
-                            match_line(line_it, &pattern, false, capture_group, -100, plus_until);
+                        let random_negative_number = -100;
+                        let (matched_substring, _) = match_line(
+                            line_it,
+                            &pattern,
+                            false,
+                            capture_group,
+                            random_negative_number,
+                            next_in_pattern,
+                        );
 
                         matched_seq.push_str(&matched_substring);
                         matches = !matched_substring.is_empty()
                     } else {
                         while let Some(c) = line_it.next() {
-                            matched_seq.push(*c);
                             matches = match directive {
                                 'd' => {
                                     temp_memory = Memory::Numeric;
@@ -132,65 +122,41 @@ where
                             };
 
                             if matches || !first_match {
+                                matched_seq.push(*c);
                                 break;
                             }
                         }
                     }
-
-                    first_match = false;
-                    matches
-                } else {
-                    false
                 }
+                first_match = false;
+                matches
             }
             '(' => {
                 next_idx += 1;
                 let sub_patterns = get_all_sub_patterns(&mut pattern_it);
-                let next_in_pattern = pattern_it.peek();
+                let next_in_pattern = pattern_it.peek(); // for greedy match
 
                 let mut matches = false;
-                let mut matched_substring;
 
-                if sub_patterns.len() == 1 {
+                for pattern in sub_patterns {
+                    let matched_substring;
+                    let mut copied_line_it = line_it.clone();
+
                     (matched_substring, next_idx) = match_line(
-                        &mut line_it,
-                        &sub_patterns[0],
+                        &mut copied_line_it,
+                        &pattern,
                         first_match,
                         capture_group,
                         next_idx,
                         next_in_pattern,
                     );
+
                     if !matched_substring.is_empty() {
                         matched_seq.push_str(&matched_substring);
+                        let read_count = matched_substring.len();
+                        line_it.nth(read_count - 1);
                         matches = true;
-                    }
-                } else {
-                    for pattern in sub_patterns {
-                        let mut copied_line_it = line_it.clone();
-
-                        (matched_substring, next_idx) = match_line(
-                            &mut copied_line_it,
-                            &pattern,
-                            first_match,
-                            capture_group,
-                            next_idx,
-                            next_in_pattern,
-                        );
-
-                        if !matched_substring.is_empty() {
-                            matched_seq.push_str(&matched_substring);
-                            // this is to read in original iterator, could not get around borrow checker :(
-                            match_line(
-                                line_it,
-                                &pattern,
-                                first_match,
-                                capture_group,
-                                -100,
-                                next_in_pattern,
-                            );
-                            matches = true;
-                            break;
-                        }
+                        break;
                     }
                 }
 
@@ -203,45 +169,25 @@ where
             }
             '$' => {
                 first_match = false;
-                // let mut matches = true;
                 line_it.next().is_none()
             }
             '.' => {
                 first_match = false;
+
+                let mut matches = false;
                 if let Some(c) = line_it.next() {
                     matched_seq.push(*c);
-                    true
-                } else {
-                    false
+                    matches = true;
                 }
+                matches
             }
             '+' => {
                 if first_match {
                     false
                 } else {
                     first_match = false;
-
-                    while let Some(c) = line_it.peek() {
-                        let has_match = match memory {
-                            Memory::Value(m) => m == **c,
-                            Memory::Alphabetic => c.is_alphabetic(),
-                            Memory::Numeric => c.is_numeric(),
-                            Memory::PositiveGroup(ref g) => g.contains(**c),
-                            Memory::NegativeGroup(ref g) => {
-                                println!("NEgative group: {c}, next_pattern = {:?}", plus_until);
-                                match plus_until {
-                                    Some(next_in_pat) => !g.contains(**c) && *next_in_pat != **c,
-                                    _ => !g.contains(**c),
-                                }
-                            }
-                            Memory::None => false,
-                        };
-                        if !has_match {
-                            break;
-                        }
-                        matched_seq.push(*line_it.next().unwrap());
-                    }
-
+                    let one_or_more_match = match_one_or_more(line_it, memory, next_in_pattern);
+                    matched_seq.push_str(&one_or_more_match);
                     true
                 }
             }
@@ -249,36 +195,11 @@ where
                 first_match = false;
                 true
             }
-
             other => {
-                let mut matches = false;
-                while let Some(c) = line_it.peek() {
-                    if **c == other {
-                        matches = true;
-                        matched_seq.push(*line_it.next().unwrap());
-                        break;
-                    }
-                    if let Some(question) = pattern_it.peek() {
-                        if *question == '?' {
-                            pattern_it.next();
-                            matches = true;
-                            break;
-                        }
-                    }
-                    if !first_match {
-                        matched_seq.push(*line_it.next().unwrap());
-                        matches = false;
-                        break;
-                    }
-                    matched_seq.push(*line_it.next().unwrap());
-                }
+                let (matched_raw_chars, matches) =
+                    match_one_raw_char(line_it, &mut pattern_it, other, first_match);
 
-                if let Some(question) = pattern_it.peek() {
-                    if *question == '?' {
-                        pattern_it.next();
-                        matches = true;
-                    }
-                }
+                matched_seq.push_str(&matched_raw_chars);
                 first_match = false;
                 matches
             }
@@ -292,35 +213,105 @@ where
             return (String::new(), next_idx);
         }
     }
-    println!(
-        "capture_group before inserting {} = {:?}",
-        curr_idx, capture_group
-    );
-    capture_group.insert(curr_idx, matched_seq.clone());
-    println!(
-        "capture_group after inserting {} = {:?}",
-        curr_idx, capture_group
-    );
+
+    if curr_idx > 0 {
+        capture_group.insert(curr_idx, matched_seq.clone());
+    }
 
     return (matched_seq, next_idx);
 }
 
-#[derive(PartialEq)]
-enum Memory {
-    Value(char),
-    PositiveGroup(String),
-    NegativeGroup(String),
-    Alphabetic,
-    Numeric,
-    None,
+fn get_group_chars(pattern_it: &mut impl Iterator<Item = char>) -> (String, bool) {
+    let mut neg = false;
+    let mut group_chars = String::new();
+    for group_char in &mut *pattern_it {
+        if group_char == '^' {
+            neg = true;
+            continue;
+        }
+        if group_char == ']' {
+            break;
+        }
+        group_chars.push(group_char);
+    }
+    (group_chars, neg)
+}
+
+fn match_one_raw_char<'a, I, J>(
+    line_it: &mut Peekable<I>,
+    pattern_it: &mut Peekable<J>,
+    raw_char: char,
+    first_match: bool,
+) -> (String, bool)
+where
+    I: Iterator<Item = &'a char>,
+    J: Iterator<Item = char>,
+{
+    let mut matched_seq = String::new();
+    let mut matches = false;
+    while let Some(c) = line_it.peek() {
+        if **c == raw_char {
+            matches = true;
+            matched_seq.push(*line_it.next().unwrap());
+            break;
+        }
+        if let Some(question) = pattern_it.peek() {
+            if *question == '?' {
+                pattern_it.next();
+                matches = true;
+                break;
+            }
+        }
+        if !first_match {
+            matched_seq.push(*line_it.next().unwrap());
+            matches = false;
+            break;
+        }
+        matched_seq.push(*line_it.next().unwrap());
+    }
+
+    if let Some(question) = pattern_it.peek() {
+        if *question == '?' {
+            pattern_it.next();
+            matches = true;
+        }
+    }
+
+    (matched_seq, matches)
+}
+
+fn match_one_or_more<'a, I>(
+    line_it: &mut Peekable<I>,
+    memory: Memory,
+    next_in_pattern: Option<&char>,
+) -> String
+where
+    I: Iterator<Item = &'a char>,
+{
+    let mut matched_seq = String::new();
+    while let Some(c) = line_it.peek() {
+        let has_match = match memory {
+            Memory::Value(m) => m == **c,
+            Memory::Alphabetic => c.is_alphabetic(),
+            Memory::Numeric => c.is_numeric(),
+            Memory::PositiveGroup(ref g) => g.contains(**c),
+            Memory::NegativeGroup(ref g) => match next_in_pattern {
+                Some(next_in_pat) => !g.contains(**c) && *next_in_pat != **c,
+                _ => !g.contains(**c),
+            },
+            Memory::None => false,
+        };
+        if !has_match {
+            break;
+        }
+        matched_seq.push(*line_it.next().unwrap());
+    }
+    matched_seq
 }
 
 // expected input
-// abc|cde|efg)
-fn get_all_sub_patterns<I>(pattern_it: &mut I) -> Vec<String>
-where
-    I: Iterator<Item = char>,
-{
+// abc|cde|efg) i.e omitting first `(`
+fn get_all_sub_patterns(pattern_it: &mut impl Iterator<Item = char>) -> Vec<String> {
     let mut bracket_stack: Vec<char> = Vec::from(['(']);
 
     let mut sub_patterns = Vec::new();
@@ -345,164 +336,6 @@ where
         acc.push(c);
     }
     sub_patterns
-}
-
-fn consume_more<'a, I>(it: &mut Peekable<I>, c: char, mut times: i32)
-where
-    I: Iterator<Item = &'a char>,
-{
-    while let Some(x) = it.peek() {
-        if **x != c {
-            break;
-        }
-        if times == 0 {
-            break;
-        }
-        times -= 1;
-        it.next();
-    }
-}
-
-#[derive(Debug)]
-enum RegexType {
-    Invalid,
-    Digit,
-    Word,
-    Char(char),
-    Literal(String),
-    LiteralFree(String),
-    CharGroup(String),
-    NegCharGroup(String),
-}
-#[derive(Debug)]
-struct Regex {
-    tree: Vec<RegexType>,
-}
-
-impl Regex {
-    fn compile(pattern: &str) -> Regex {
-        let mut tree = Vec::new();
-        let mut pattern_it = pattern.chars();
-        while let Some(c) = pattern_it.next() {
-            let reg_type = match c {
-                '\\' => match pattern_it.next() {
-                    Some('d') => RegexType::Digit,
-                    Some('w') => RegexType::Word,
-                    Some(ch) => RegexType::Char(ch),
-                    None => RegexType::Invalid,
-                },
-                '[' => {
-                    let mut char_group = String::new();
-                    let (mut error, mut negative) = (false, false);
-
-                    loop {
-                        match pattern_it.next() {
-                            Some('^') => negative = true,
-                            Some(gc) => {
-                                if gc == ']' {
-                                    break;
-                                }
-                                char_group.push(gc);
-                            }
-                            None => {
-                                error = true;
-                                break;
-                            }
-                        };
-                    }
-                    if error {
-                        RegexType::Invalid
-                    } else if negative {
-                        RegexType::NegCharGroup(char_group)
-                    } else {
-                        RegexType::CharGroup(char_group)
-                    }
-                }
-                c => RegexType::Char(c),
-            };
-
-            tree.push(reg_type);
-        }
-
-        // convert consecutive chars to Literal type
-        let mut tree_final: Vec<RegexType> = Vec::new();
-        let mut literals = String::new();
-        for regex_type in tree {
-            match regex_type {
-                RegexType::Char(c) => literals.push(c),
-                rt => {
-                    if !literals.is_empty() {
-                        tree_final.push(RegexType::LiteralFree(literals));
-                        literals = String::new();
-                    }
-                    tree_final.push(rt);
-                }
-            }
-        }
-        Regex { tree: tree_final }
-    }
-
-    fn execute(&self, line: &str) -> bool {
-        let mut line_it = line.chars().peekable();
-        for rule in &self.tree {
-            if !self.engulf(rule, &mut line_it) {
-                return false;
-            }
-        }
-        true
-    }
-
-    fn engulf<I>(&self, rule: &RegexType, it: &mut Peekable<I>) -> bool
-    where
-        I: Iterator<Item = char>,
-    {
-        match rule {
-            RegexType::Char(ch) => it.any(|c| c == *ch),
-            RegexType::CharGroup(char_group) => it.any(|c| char_group.contains(c)),
-            RegexType::NegCharGroup(char_group) => it.all(|c| !char_group.contains(c)),
-            RegexType::LiteralFree(literals) => it.any(|c| literals.contains(c)),
-            RegexType::Literal(literals) => {
-                let mut literal_match = true;
-                for l in literals.chars() {
-                    if let Some(c) = it.next() {
-                        if c != l {
-                            literal_match = false;
-                            break;
-                        }
-                    }
-                }
-                literal_match
-            }
-            RegexType::Digit => it.any(|c| c.is_ascii_digit()),
-            RegexType::Word => it.any(|c| c.is_ascii_alphabetic()),
-            _ => false,
-        }
-        // while let Some(c) = it.peek() {
-        //     let ret_val = match rule {
-        //         RegexType::Literal(x) => c == x,
-        //         RegexType::Digit => c.is_ascii_digit(),
-        //         RegexType::Word => c.is_ascii_alphabetic(),
-        //         RegexType::CharGroup(char_group) => char_group.contains(*c),
-        //         RegexType::NegCharGroup(char_group) => {
-        //             let mut char_exists = false;
-        //             for ch in &mut *it {
-        //                 if char_group.contains(ch) {
-        //                     char_exists = true;
-        //                     break;
-        //                 }
-        //             }
-        //             !char_exists
-        //         }
-        //         _ => false,
-        //     };
-        //
-        //     it.next();
-        //     if ret_val {
-        //         return ret_val;
-        //     }
-        // }
-        // false
-    }
 }
 
 #[cfg(test)]
